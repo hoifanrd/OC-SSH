@@ -11,7 +11,7 @@ Note: In any circumstance, you SHOULD only use this script in a Minecraft server
 ---
 # Usage
 ```
-ssh [username@]host [port]
+ssh [username@]<host> [port]
 ```
 
 ![image](https://github.com/user-attachments/assets/958bc3c0-2532-41c8-b84a-efa6c97b65e6)
