@@ -1,6 +1,6 @@
 # OC-SSH
 
-SSH Protocol (RFC4250) that can connect to real computers in Minecraft! (with the mod OpenComputer)
+SSH Protocol (RFC4251) that can connect to real computers in Minecraft! (with the mod OpenComputer)
 
 Written in pure Lua and APIs available in OpenOS.
 
