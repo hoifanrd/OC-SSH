@@ -41,8 +41,7 @@ do
         return self
       else -- error or eof
         if reason then
-          print("\nDisconnected from " .. self.host)
-          os.exit()
+          error("\nDisconnected from " .. self.host, 0)
         end
         return result
       end
@@ -71,7 +70,7 @@ do
           if #self.bufferRead == 0 then
             local res = readChunk(self)
             if not res then    -- eof
-              os.exit()
+              error("", 0)
             end
           end
           local splice = self.bufferRead
@@ -84,8 +83,7 @@ do
             if self.start_no_recv == nil then
               self.start_no_recv = computer.uptime()
             elseif computer.uptime() - self.start_no_recv > self.readTimeout then
-              print("\nDisconnected from " .. self.host)
-              os.exit()
+              error("\nDisconnected from " .. self.host, 0)
             end
             self.bufferRead = data .. self.bufferRead
             data = ""
@@ -103,8 +101,7 @@ do
         local status
         status, data = pcall(ori_read, self, arg)
         if not status then
-          print("\nDisconnected from " .. self.host)
-          os.exit()
+          error("\nDisconnected from " .. self.host)
         end
     
       end

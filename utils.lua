@@ -86,8 +86,11 @@ function str_to_hex(str)
 end
 
 
-function write_to_log(str)
-  local fd = io.open("log.txt", "a")
+function write_to_log(str, file)
+  if not file then
+    file = "log.txt"
+  end
+  local fd = io.open(file, "a")
   fd:write(str)
   fd:close()
 end

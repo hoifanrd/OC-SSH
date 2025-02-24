@@ -50,8 +50,7 @@ function SSH_Auth:handle_failure(packet)
 
   local method = self:determine_auth_method(name_list)
   if method == nil then
-    print("Client does not support authentication protocol requested by server: " .. table.concat(name_list, ","))
-    os.exit()
+    error("Client does not support authentication protocol requested by server: " .. table.concat(name_list, ","), 0)
   end
 
   local payload = nil
@@ -81,7 +80,7 @@ function SSH_Auth:handle_failure(packet)
 
       local new_method = self:determine_auth_method(name_list)
       if new_method == nil then
-        os.exit()
+        error("", 0)
       end
 
       if self.stage == new_method and self.stage == PASSWORD_AUTH then

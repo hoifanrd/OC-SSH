@@ -81,6 +81,8 @@ function CHANNEL:recv_data(data)
     self.cur_window_client = self.cur_window_client + RESIZE_WINDOW_SIZE
   end
 
+  -- write_to_log(data, "channel_data.txt")       -- DEBUG
+
   if self.type_recv_data then
     self:type_recv_data(data)
   end
@@ -98,6 +100,8 @@ function CHANNEL:send_data(data, append_to_buf)
   while num_data_to_send > 0 do
     local data_to_send = data:sub(1, num_data_to_send)
     data = data:sub(num_data_to_send + 1)
+
+    -- write_to_log(data_to_send)          -- DEBUG
 
     local payload = string.char(SSH_MSG_CHANNEL_DATA)
     payload = payload .. string.pack(">I4", self.id_server)

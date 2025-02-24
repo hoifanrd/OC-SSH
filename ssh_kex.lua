@@ -103,7 +103,7 @@ function SSH_Kex:create_kex_client(kex_content_server)
     end
 
     if not match_algo_found then
-      error("Unsupported algorithm " .. ALGO_NEGO_NAMELIST[i] .. ": " .. table.concat(server_list_namelist[i],",") .. " required.")
+      error("Unsupported algorithm " .. ALGO_NEGO_NAMELIST[i] .. ": " .. table.concat(server_list_namelist[i],",") .. " required.", 0)
     end
 
     kex_content_client = kex_content_client .. createNamelist(client_algos)
@@ -163,7 +163,7 @@ function SSH_Kex:receive_kex_server(content)
   )
   
   if not sign_valid then
-    error("Invalid signature on exchanged key hash from the server!")
+    error("Invalid signature on exchanged key hash from the server!", 0)
   elseif self.ssh_tran.debug then
     print("kex_algorithms: Verified exchange hash signature.")
   end

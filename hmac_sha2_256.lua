@@ -1,4 +1,5 @@
 local component = require("component")
+local sha256 = require("cryptolib.sha256")
 
 local HMAC_KEY_LEN = 32
 local HMAC_LEN = 32
@@ -20,7 +21,11 @@ end
 
 
 function HMAC_SHA2:create_hmac(data)
-  return component.data.sha256(data, self.key)
+  local rtn = nil
+  while rtn == nil do
+    rtn = sha256.hmac(data, self.key)
+  end
+  return rtn
 end
 
 

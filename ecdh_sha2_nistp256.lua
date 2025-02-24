@@ -1,9 +1,10 @@
 local component = require("component")
 local ber = require("ber")
+local sha256 = require("cryptolib.sha256")
 
 -- Output bytes of SHA256
 local HASH_OUTPUT_LEN = 32
-local HASH_FUNC = component.data.sha256
+local HASH_FUNC = sha256.digest
 
 ECDH_Proto = {}
 ECDH_Proto.__index = ECDH_Proto
@@ -65,7 +66,7 @@ function ECDH_Proto:perform_exchange(pubkey_server_bytes)
   self.pubkey_server = component.data.deserializeKey(constructedX509, "ec-public")
 
   if self.pubkey_server == nil then
-    error("Invalid server public key for ecdh-sha2-nistp256!")
+    error("Invalid server public key for ecdh-sha2-nistp256!", 0)
   end
 
   self.shared_key = component.data.ecdh(self.privkey_client, self.pubkey_server)

@@ -5,6 +5,7 @@ local io = require("io")
 local filesystem = require("filesystem")
 local component = require("component")
 local term = require("term")
+local sha256 = require("cryptolib.sha256")
 
 SSH_Known_Host = {}
 SSH_Known_Host.__index = SSH_Known_Host
@@ -88,7 +89,7 @@ function SSH_Known_Host.handle_connect_server_host_key(server_host_key, host_key
   -- If local server host key can't find
   if local_server_host_key == nil or local_server_host_key ~= server_host_key then
 
-    local server_host_key_fingerprint = component.data.encode64(component.data.sha256(server_host_key))
+    local server_host_key_fingerprint = component.data.encode64(sha256.digest(server_host_key))
     print("The authenticity of host '" .. hostport .. "' can't be established.")
     print(host_key_method:match('([^-]+)'):upper() .. " key fingerprint is SHA256:" .. server_host_key_fingerprint .. ".")
     print("This key is not known by any other names.")
@@ -105,7 +106,7 @@ function SSH_Known_Host.handle_connect_server_host_key(server_host_key, host_key
       -- Append new host key to the file
       appendServerHostKey(server_host_key, host_key_method, host, port)
     else
-      error("Host key verification failed.")
+      error("Host key verification failed.", 0)
     end
 
   end

@@ -7,7 +7,6 @@ local ssh_tty = require("ssh_tty")
 local thread = require("thread")
 local component = require("component")
 local event = require("event")
-local computer = require("computer")
 
 local OPENED_CHANNEL = 0
 local REQUESTED_PTY = 1
@@ -37,7 +36,7 @@ do
     if self.stage == OPENED_CHANNEL then
       
       local req_str = "pty-req"
-      local term_env = "vt100"
+      local term_env = "xterm-256color"    -- xterm-256color
   
       local resW, resH = component.gpu.getResolution()
   
@@ -93,12 +92,47 @@ do
       self.tty_obj = ssh_tty.open_tty(
         { processInput = function(_, data) self:send_data(data) end }
       )
+
+      thread.create(function(handle_mouse_scroll)
+        while true do
+          handle_mouse_scroll(event.pull("scroll"))
+        end
+      end, self.tty_obj.handle_mouse_scroll)
   
+      thread.create(function(handle_mouse_click)
+        while true do
+          handle_mouse_click(event.pull("touch"))
+        end
+      end, self.tty_obj.handle_mouse_click)
+
+      thread.create(function(handle_mouse_release)
+        while true do
+          handle_mouse_release(event.pull("drop"))
+        end
+      end, self.tty_obj.handle_mouse_release)
+
       thread.create(function(handle_key_down)
         while true do
           handle_key_down(event.pull("key_down"))
         end
       end, self.tty_obj.handle_key_down)
+
+      thread.create(function(handle_clipboard)
+        local buffer = ""
+        local kbd = nil
+        while true do
+          local status, tmp_kbd, str = event.pull(0.05, "clipboard")
+          if tmp_kbd then
+            kbd = tmp_kbd
+          end
+          if (not status) and #buffer > 0 then
+            handle_clipboard(status, kbd, buffer)
+            buffer = ""
+          elseif status then
+            buffer = buffer .. str
+          end
+        end
+      end, self.tty_obj.handle_clipboard)
   
     end
   
@@ -108,7 +142,9 @@ do
   -- Return value: exit ssh after closing?
   function PTY:type_close()
     
-    self.tty_obj.close_tty()
+    if self.tty_obj then
+      self.tty_obj.close_tty()
+    end
     return true
 
   end
@@ -116,8 +152,7 @@ do
   
   function PTY:type_failure()
   
-    print("pty allocation request failed on channel " .. self.id_client .. ".")
-    os.exit()
+    error("pty allocation request failed on channel " .. self.id_client .. ".", 0)
   
   end
   

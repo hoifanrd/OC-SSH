@@ -7,6 +7,7 @@ package.loaded.ssh_transport = nil
 local SSH_Transport = require("ssh_transport")
 
 local args, options = shell.parse(...)
+local debug = options.v
 
 if #args < 1 then
   io.write("Usage: ssh <host> [port]")
@@ -37,15 +38,20 @@ if not filesystem.exists(SSH_BASE_FOLDER) then
 
 end
 
-local ssh_tran = SSH_Transport.new(host, port, username, options.v)
+local ssh_tran = SSH_Transport.new(host, port, username, debug)
 
 ssh_tran:protoEx()
 
 while true do
-  ssh_tran:processPacket()
+  
+  local status, res = pcall(ssh_tran.processPacket, ssh_tran)
+  if not status then
+    ssh_tran:terminate(res)
+  end
+  
   local status = pcall(os.sleep, 0.02)
   if not status then
-    ssh_tran:terminate()
+    ssh_tran:terminate("Connection to " .. host .. " closed.")
   end
 end
 

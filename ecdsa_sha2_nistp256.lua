@@ -52,7 +52,7 @@ function ECDSA_Proto:set_pubkey_server(server_pub_host_key)
 
   self.pubkey_server = component.data.deserializeKey(constructedX509, "ec-public")
   if self.pubkey_server == nil then
-    error("Invalid server host key for ecdsa-sha2-nistp256!")
+    error("Invalid server host key for ecdsa-sha2-nistp256!", 0)
   end
 
 end

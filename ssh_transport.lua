@@ -16,6 +16,7 @@ local SSH_Socket = require("ssh_socket")
 
 local os = require("os")
 local component = require("component")
+local event = require("event")
 
 SSH_Transport = {}
 SSH_Transport.__index = SSH_Transport
@@ -104,8 +105,7 @@ function SSH_Transport:readSSHPacket(blocking)
     local calc_mac = mac_algo_s2c:create_hmac(self.packet_seq_no_server .. packet)
 
     if mac ~= calc_mac then
-      print("Connection corrupted: Invalid HMAC received.")
-      os.exit()
+      error("Connection corrupted: Invalid HMAC received! ", 0)
     end
     
   end
@@ -176,12 +176,7 @@ function SSH_Transport:processPacket()
 
     -- Client: SSH_MSG_KEXINIT
     self.new_kex = SSH_Kex.new(self)
-    local status, payload, skip_guessed_kex_server = pcall(self.new_kex.create_kex_client, self.new_kex, packet)
-
-    if not status then
-      print(payload)
-      os.exit()
-    end
+    local payload, skip_guessed_kex_server = self.new_kex:create_kex_client(packet)
 
     if skip_guessed_kex_server then
       self:readSSHPacket(true)
@@ -207,12 +202,7 @@ function SSH_Transport:processPacket()
     end
     self.packet_sent[SSH_MSG_KEX_ECDH_INIT] = nil
 
-    -- res = session_id
-    local status, res = pcall(self.new_kex.receive_kex_server, self.new_kex, packet)
-    if not status then
-      print(res)
-      os.exit()
-    end
+    self.new_kex:receive_kex_server(packet)
 
     -- Fixed for same conn even re-kex
     if self.session_id == nil then
@@ -268,8 +258,7 @@ function SSH_Transport:processPacket()
 
     else
 
-      print("Unsupported SSH service name received: " .. service_name .. ".")
-      os.exit()
+      error("Unsupported SSH service name received: " .. service_name .. ".", 0)
 
     end
   
@@ -318,7 +307,7 @@ function SSH_Transport:processPacket()
       print(reason)
     end
 
-    os.exit()
+    error("", 0)
 
   elseif packet_type == SSH_MSG_GLOBAL_REQUEST then
 
@@ -377,21 +366,25 @@ function SSH_Transport:processPacket()
     self:sendSSHPacket(payload)
 
     if exit then
-      self:terminate()
+      -- Cannot call self:terminate - os.exit() will be captured by pcall! fuck!
+      error("Connection to " .. self.host .. " closed.", 0)
     end
 
   else
 
-    -- print(packet_type)
+    write_to_log(packet_type .. "\n")
 
   end
 
 end
 
 
-function SSH_Transport:terminate()
+function SSH_Transport:terminate(err_msg)
   if self.connection then
     self.connection:conn_close()
+  end
+  if err_msg ~= nil then
+    print(err_msg)
   end
   os.exit()
 end

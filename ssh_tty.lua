@@ -22,6 +22,107 @@
 local component = require("component")
 local computer = require("computer")
 local term = require("term")
+local keyboard = require("keyboard")
+local unicode = require("unicode")
+
+
+
+
+local function parse_str(str)
+
+  local parsed = {}
+
+  local function parse_unicode(str)
+    local utf8_idx = 1
+    while #str > 0 do
+      local char_len
+      local lu_1byte = string.byte(str, 1)
+      if (lu_1byte >> 5) == 6 then
+        char_len = 2
+      elseif (lu_1byte >> 4) == 14 then
+        char_len = 3
+      elseif (lu_1byte >> 3) == 30 then
+        char_len = 4
+      else
+        char_len = 1
+      end
+      parsed[utf8_idx] = string.sub(str, 1, char_len)
+      str = string.sub(str, char_len + 1)
+      utf8_idx = utf8_idx + 1
+    end
+  end
+
+  parse_unicode(str)
+
+  local function sub(i, j)
+    j = j or #parsed
+    local res = ""
+    for k=i, j do
+      res = res .. parsed[k]
+    end
+    return res
+  end
+
+  local function len()
+    return #parsed
+  end
+
+  return {
+    sub = sub,
+    len = len
+  }
+
+end
+
+
+
+local function escape_unicode_sub(str, i, j)
+
+  local utf8_idx = 1
+  while utf8_idx < i and #str > 0 do
+    local next_byte_idx
+    local lu_1byte = string.byte(str, 1)
+    if (lu_1byte >> 5) == 6 then
+      next_byte_idx = 3
+    elseif (lu_1byte >> 4) == 14 then
+      next_byte_idx = 4
+    elseif (lu_1byte >> 3) == 30 then
+      next_byte_idx = 5
+    else
+      next_byte_idx = 2
+    end
+    str = string.sub(str, next_byte_idx)
+    utf8_idx = utf8_idx + 1
+  end
+
+  if #str == 0 or j == nil then
+    return str
+  end
+
+  local end_idx = 0
+  local str_len = #str
+  while utf8_idx <= j and end_idx < str_len do
+    local next_byte_idx
+    local lu_1byte = string.byte(str, end_idx + 1)
+    if (lu_1byte >> 5) == 6 then
+      next_byte_idx = 2
+    elseif (lu_1byte >> 4) == 14 then
+      next_byte_idx = 3
+    elseif (lu_1byte >> 3) == 30 then
+      next_byte_idx = 4
+    else
+      next_byte_idx = 1
+    end
+    end_idx = end_idx + next_byte_idx
+    utf8_idx = utf8_idx + 1
+  end
+
+  return string.sub(str, 1, end_idx)
+
+end
+
+
+
 
 do
   
@@ -45,7 +146,22 @@ do
   -- ignored apparently
   local DEL = '\x7f'
   -- equivalent to esc [
-  local CSI = '\x9B'
+  local CSI = '\xc2\x9B'
+
+  local code_chars = {
+    [0x3B] = "OP",
+    [0x3C] = "OQ",
+    [0x3D] = "OR",
+    [0x3E] = "OS",
+    [0x3F] = "[15~",
+    [0x40] = "[17~",
+    [0x41] = "[18~",
+    [0x42] = "[19~",
+    [0x43] = "[20~",
+    [0x44] = "[21~",
+    [0x57] = "[23~",
+    [0x58] = "[24~"
+  }
 
   local MODE_NORMAL = 0
   local MODE_ESC = 1
@@ -101,24 +217,13 @@ do
     0xffffff
   }
 
-  -- use string.gmatch for parsing smaller than this, string.sub for everything longer or equal
-  -- in normal Lua gmatch is twice as fast for everything, but OpenComputers reimplements the
-  -- pattern-matching functions in Lua, which is approximately 100x slower.
-  -- on my machine lua5.4 gmatch takes 4.5 seconds to process 128MB of data;
-  -- OpenComputers gmatch takes nearly 10 minutes.
-  -- string.sub takes roughly 8 seconds on lua5.4 and 12 on OpenComputers.
-  local MAX_GMATCH = 500
 
-  local gmatch, sub = string.gmatch, string.sub
-  local function get_iter(str)
-    if #str < MAX_GMATCH then
-      return gmatch(str, "()(.)")
-    else
-      local n, len = 0, #str
-      return function()
-        n = n + 1
-        if n <= len then return n, sub(str, n, n) end
-      end
+  local sub, len = escape_unicode_sub, unicode.len
+  local function get_iter(parsed_str)
+    local n, str_len = 0, parsed_str.len()
+    return function()
+      n = n + 1
+      if n <= str_len then return n, parsed_str.sub(n, n) end
     end
   end
 
@@ -126,6 +231,29 @@ do
 
     local gpu = term.gpu()
     local _, ori_fg, ori_bg = gpu.get(term.getCursor())
+
+    --[[
+    gpu.set = (function(func)
+      return function(...)
+        write_to_log(string.format("Set coordinate %d, %d with string \"%s\" \n", ...))
+        func(...)
+      end
+    end)(gpu.set)
+
+    gpu.copy = (function(func)
+      return function(...)
+        write_to_log(string.format("Copy rectangle at coordinate %d, %d; of size %d, %d; to offset %d, %d \n", ...))
+        func(...)
+      end
+    end)(gpu.copy)
+
+    gpu.fill = (function(func)
+      return function(...)
+        write_to_log(string.format("Fill rectangle at coordinate %d, %d; of size %d, %d; with character \"%s\" \n", ...))
+        func(...)
+      end
+    end)(gpu.fill)
+    --]]
 
     local w, h = gpu.getResolution()
     local mode = MODE_NORMAL
@@ -140,32 +268,44 @@ do
     local fg, bg = colors[8], colors[1]
     local save = {fg = fg, bg = bg, autocr = autocr, reverse = reverse, display = display, insert = insert,
       mousereport = mousereport, altcursor = altcursor, cursor = cursor, autowrap = autowrap}
+    local save_alt = {st = st, sb = sb, cx = cx, cy = cy, fg = fg, bg = bg, autocr = autocr, reverse = reverse, display = display, insert = insert,
+    mousereport = mousereport, altcursor = altcursor, cursor = cursor, autowrap = autowrap}
+    local bracketpaste, altbuffer = false, nil
     local cursorvisible = false
     local shouldchange = false
     local keyboards = {}
+    local bound_screen = gpu.getScreen()
     local new = {discipline = discipline}
 
     for _, kbaddr in pairs(component.invoke(gpu.getScreen(), "getKeyboards")) do
       keyboards[kbaddr] = true
     end
 
+    local function cursor_valid()
+      return cx >= 1 and cx <= w and cy >= 1 and cy <= h
+    end
+
     local function setcursor(v)
       if cursorvisible ~= v then
         shouldchange = true
         cursorvisible = v
-        local c, cfg, cbg = gpu.get(cx, cy)
-        gpu.setBackground(cfg)
-        gpu.setForeground(cbg)
-        gpu.set(cx, cy, c)
+        if cursor_valid() then
+          local c, cfg, cbg = gpu.get(cx, cy)
+          gpu.setBackground(cfg)
+          gpu.setForeground(cbg)
+          gpu.set(cx, cy, c)
+        end
       end
     end
 
+    -- Fix hoifanrd
     local function scroll(n)
+      -- write_to_log(string.format("Scroll for %d lines; st = %d, sb = %d \n", n, st, sb))
       if n < 0 then
-        gpu.copy(1, st, w, sb+n, 0, -n)
-        gpu.fill(1, 1, w, -n, " ")
+        gpu.copy(1, st, w, math.max(0, (sb - st + 1) + n), 0, -n)
+        gpu.fill(1, st, w, math.min(sb - st + 1, -n), " ")
       else
-        gpu.copy(1, st+n, w, sb, 0, -n)
+        gpu.copy(1, st+n, w, math.max(0, (sb - st + 1) - n), 0, -n)
         gpu.fill(1, sb - n + 1, w, n, " ")
       end
     end
@@ -185,23 +325,64 @@ do
       end
     end
 
+    local function switch_alt()
+      save_alt = {st = st, sb = sb, cx = cx, cy = cy, fg = fg, bg = bg, autocr = autocr, reverse = reverse, display = display, insert = insert,
+        mousereport = mousereport, altcursor = altcursor, cursor = cursor, autowrap = autowrap}
+      altbuffer = gpu.allocateBuffer()
+      gpu.bitblt(1)
+      gpu.fill(1, 1, w, h, " ")
+    end
+
+    local function switch_main()
+      cx, cy, st, sb = save_alt.cx, save_alt.cy, save_alt.st, save_alt.sb
+      fg, bg = save_alt.fg, save_alt.bg
+      autocr, reverse, display, insert = save_alt.autocr, save_alt.reverse, save_alt.display, save_alt.insert
+      mousereport, altcursor, cursor, autowrap = save_alt.mousereport, save_alt.altcursor, save_alt.cursor, save_alt.autowrap
+      gpu.setActiveBuffer(altbuffer)
+      gpu.bitblt()
+      gpu.freeBuffer(altbuffer)
+    end
+
     local function clamp()
       cx, cy = math.min(w, math.max(1, cx)), math.min(h, math.max(1, cy))
     end
 
     local function flush()
+
+      -- Add unicode malformed check
+      local malformed = false
+      local valid_wbuf = wbuf
+
+      local last_unicode = sub(valid_wbuf, len(valid_wbuf))
+      local lu_1byte = string.byte(last_unicode, 1)
+      if #last_unicode == 1 then
+        malformed = (lu_1byte >> 7) ~= 0
+      elseif #last_unicode == 2 then
+        malformed = (lu_1byte >> 5) ~= 6
+      elseif #last_unicode == 3 then
+        malformed = (lu_1byte >> 4) ~= 14
+      elseif #last_unicode == 4 then
+        malformed = (lu_1byte >> 3) ~= 30
+      end
+
+      if malformed then
+        valid_wbuf = sub(valid_wbuf, 1, len(valid_wbuf) - 1)
+      end
+      wbuf = string.sub(wbuf, #valid_wbuf + 1)
+
       gpu.setForeground(reverse and bg or fg)
       gpu.setBackground(reverse and fg or bg)
-      repeat
-        local towrite = sub(wbuf, 1, w-cx+1)
-        wbuf = sub(wbuf, #towrite+1)
+      while #valid_wbuf > 0 and autowrap do
+        local towrite = sub(valid_wbuf, 1, w-cx+1)
+        valid_wbuf = sub(valid_wbuf, #towrite+1)
         if insert then
-          gpu.copy(cx, cy, w, 1, #towrite, 0)
+          gpu.copy(cx, cy, w, 1, len(towrite), 0)
         end
-        gpu.set(cx, cy, towrite)
-        cx = cx + #towrite
         corral()
-      until #wbuf == 0 or not autowrap
+        -- write_to_log("Writing at line " .. cy .. "\n")
+        gpu.set(cx, cy, towrite)
+        cx = cx + len(towrite)
+      end
       if new.discipline and #rbuf > 0 then
         new.discipline:processInput(rbuf)
         rbuf = ""
@@ -212,22 +393,33 @@ do
       if #str == 0 then return end
 
       setcursor(false)
-      if shouldchange then
-        gpu.setForeground(reverse and bg or fg)
-        gpu.setBackground(reverse and fg or bg)
-      end
 
-      local pi = 1
-      for i, c in get_iter(str) do
+      local pi = mode == MODE_NORMAL and 1 or -1  -- Fix hoifanrd
+      local parsed_str = parse_str(str)
+      for i, c in get_iter(parsed_str) do
+
+        if shouldchange then                      -- Fix hoifanrd
+          gpu.setForeground(reverse and bg or fg)
+          gpu.setBackground(reverse and fg or bg)
+          shouldchange = false
+        end
+
         if control_chars[c] then
           if pi > 0 then
-            wbuf = wbuf .. sub(str, pi, i-1)
+            wbuf = wbuf .. parsed_str.sub(pi, i-1)
             flush()
             pi = -1
           end
           -- control characters are always processed, even in the middle of a sequence
           if c == BEL then
-            computer.beep()
+            
+            if mode == MODE_OSC then
+              -- ???
+              mode = MODE_NORMAL
+            else
+              computer.beep()
+            end
+
           elseif c == BS then
             cx = cx - 1
             corral()
@@ -275,7 +467,7 @@ do
             corral()
           elseif c == "Z" then -- DECID / DEC private identification.  return ESC [ ? 6 c (VT102)
             rbuf = rbuf .. ESC .. "[?6c"
-          elseif c == "7" then -- DECSC / save current state (cursor, attributes, charsets)
+          elseif c == "7" then -- DECSC / save current state (cursor, attributes, charsets)   https://vt100.net/docs/vt510-rm/DECSC.html
             save = {fg = fg, bg = bg, autocr = autocr, reverse = reverse, display = display, insert = insert,
               mousereport = mousereport, altcursor = altcursor, cursor = cursor, autowrap = autowrap}
           elseif c == "8" then -- DECRC / restore last ESC 7 state
@@ -408,6 +600,15 @@ do
                   cursor = set
                 elseif seq[i] == 1000 then -- X11 mouse reporting
                   mousereport = set and 2 or 0
+                elseif seq[i] == 1049 then  -- Alternative screen buffer
+                  local alt_used = arrayContains(gpu.buffers(), altbuffer)
+                  if set and not alt_used then
+                    switch_alt()
+                  elseif alt_used then
+                    switch_main()
+                  end
+                elseif seq[i] == 2004 then  -- Bracket paste mode
+                  bracketpaste = set
                 end
               end
 
@@ -500,8 +701,18 @@ do
           end
 
         elseif mode == MODE_OSC then
-          -- TODO
-          mode = MODE_NORMAL
+          
+          if c == ";" then
+            seq[#seq+1] = ";"
+          elseif tonumber(c) then
+            if not seq[#seq] or type(seq[#seq]) == "number" then
+              seq[math.max(1, #seq)] = (seq[#seq] or 0) * 10 + tonumber(c)
+            else
+              seq[#seq+1] = c
+            end
+          else
+            seq[#seq+1] = c
+          end
 
         elseif mode == MODE_G0 then
           mode = MODE_NORMAL -- TODO
@@ -521,7 +732,7 @@ do
       end
 
       if pi > 0 then
-        wbuf = wbuf .. sub(str, pi, #str)
+        wbuf = wbuf .. parsed_str.sub(pi, parsed_str.len())
       end
 
       flush()
@@ -529,9 +740,6 @@ do
       if mode == MODE_NORMAL and cursor then
         setcursor(true)
       end
-
-      -- Added for sync with original OS term
-      term.setCursor(cx, cy)
 
     end
 
@@ -548,8 +756,14 @@ do
         local interim = altcursor and "O" or "["
         to_buffer = ESC .. interim .. c
 
+      elseif code_chars[code] then
+        to_buffer = ESC .. code_chars[code]
       elseif char > 0 then
-        to_buffer = string.char(char)
+        if keyboard.isAltDown() then
+          to_buffer = ESC .. string.char(char)
+        else
+          to_buffer = string.char(char)
+        end
       end
 
       if to_buffer then
@@ -557,8 +771,46 @@ do
       end
     end
 
+    new.handle_clipboard = function(_, kbd, str)
+      if not keyboards[kbd] then return end
+      if bracketpaste then
+        str = ESC .. "[200~" .. str .. ESC .. "[201~"
+      end
+      new.discipline:processInput(str)
+    end
+
+    new.handle_mouse_scroll = function(_, scrn, x, y, dir)
+      if scrn ~= bound_screen then return end
+      if mousereport then
+        local code = dir > 0 and 0 or 1
+        local to_buf = ESC .. "[M" .. string.char(code+64+32, x+32, y+32)
+        new.discipline:processInput(to_buf)
+      end
+    end
+
+    new.handle_mouse_click = function(_, scrn, x, y, btn)
+      if scrn ~= bound_screen then return end
+      if mousereport then
+        local to_buf = ESC .. "[M" .. string.char(btn+32, x+32, y+32)
+        new.discipline:processInput(to_buf)
+      end
+    end
+
+    new.handle_mouse_release = function(_, scrn, x, y, btn)
+      if scrn ~= bound_screen then return end
+      if mousereport then
+        local to_buf = ESC .. "[M" .. string.char(3+32, x+32, y+32)
+        new.discipline:processInput(to_buf)
+      end
+    end
+
     new.close_tty = function()
+      if arrayContains(gpu.buffers(), altbuffer) then
+        switch_main()
+      end
+      clamp()
       setcursor(false)
+      term.setCursor(cx, cy)
       gpu.setForeground(ori_fg)
       gpu.setBackground(ori_bg)
       term.write("\n\n")
